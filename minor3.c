@@ -1,4 +1,7 @@
-/* minor3.c - using producer-consumer paradigm. */
+//Author: Bemnet Merkebu
+//CSCE-3600
+//Minor3.c
+//Date: 7 April, 2023
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -11,6 +14,8 @@ char shared_buffer[NITEMS];	// echo buffer
 int shared_count;		// item count
 
 pthread_mutex_t mutex;		// pthread mutex
+//intiate condition variables of type pthread
+pthread_cond_t condFull, condEmpty;
 unsigned int prod_index = 0; 	// producer index into shared buffer
 unsigned int cons_index = 0; 	// consumer index into shard buffer
 
@@ -24,7 +29,9 @@ int main()
 
 	// initialize pthread variables
 	pthread_mutex_init(&mutex, NULL);
-	
+	// intialize condition variables 
+	pthread_cond_init(&condFull, NULL);
+	pthread_cond_init(&condEmpty, NULL);
 	// start producer thread
 	pthread_create(&prod_tid, NULL, producer, NULL);
 
@@ -37,7 +44,10 @@ int main()
 	pthread_join(cons_tid1, NULL);
 	pthread_join(cons_tid2, NULL);
 			
-	// clean up
+	// destroy condition variables
+	pthread_cond_destroy(&condEmpty);
+	pthread_cond_destroy(&condFull);
+	// destroy pthread mutex 
 	pthread_mutex_destroy(&mutex);
 	
 	return 0;
@@ -59,17 +69,16 @@ void * producer(void *arg)
 		// this loop is used to poll the shared buffer to see if it is full:
 		// -- if full, unlock and loop again to keep polling
 		// -- if not full, keep locked and proceed to place character on shared buffer
-		while (1)
-		{
-			// acquire mutex lock
-			pthread_mutex_lock(&mutex);
+		
+		// acquire mutex lock
+		pthread_mutex_lock(&mutex);
 
-			// if buffer is full, release mutex lock and check again
-			if (shared_count == NITEMS)
-				pthread_mutex_unlock(&mutex);
-			else
-				break;
+		// if buffer is full, release mutex lock and check again
+		while (shared_count == NITEMS){
+			//wait for full signal to lock mutex
+			pthread_cond_wait(&condFull, &mutex);
 		}
+		
 
 		// store key in shared buffer
 		shared_buffer[prod_index] = key;
@@ -82,6 +91,9 @@ void * producer(void *arg)
 			prod_index = 0;
 		else
 			prod_index++;
+		
+		//signal the written char
+		pthread_cond_signal(&condEmpty);
 		
 		// release mutex lock
 		pthread_mutex_unlock(&mutex); 
@@ -103,17 +115,16 @@ void * consumer(void *arg)
 		// this loop is used to poll the shared buffer to see if it is empty:
 		// -- if empty, unlock and loop again to keep polling
 		// -- if not empty, keep locked and proceed to get character from shared buffer
-		while (1)
-		{
-			// acquire mutex lock
-			pthread_mutex_lock(&mutex);
+		
+		// acquire mutex lock
+		pthread_mutex_lock(&mutex);
 
-			// if buffer is empty, release mutex lock and check again
-			if (shared_count == 0)
-				pthread_mutex_unlock(&mutex);
-			else
-				break;
+		// if buffer is empty, release mutex lock and check again
+		while (shared_count == 0){
+			//wait for empty signal to lock mutex
+			pthread_cond_wait(&condEmpty, &mutex);
 		}
+		
 
 		// read key from shared buffer
 		key = shared_buffer[cons_index];
@@ -129,9 +140,12 @@ void * consumer(void *arg)
 			cons_index = 0;
 		else
 			cons_index++;
-	
+
+		// signal 
+		pthread_cond_signal(&condFull);
 		// release mutex lock
 		pthread_mutex_unlock(&mutex);
+		
 	}
 
 	return NULL;
